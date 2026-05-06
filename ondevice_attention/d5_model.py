@@ -104,11 +104,15 @@ class D5DecodeModel:
     def populate_cache_from_prefill(self, prefill_K_list, prefill_V_list,
                                     real_len: int):
         """Same one-shot copy as D3."""
+        old_K_caches = self.K_caches
+        old_V_caches = self.V_caches
         self.K_caches, self.V_caches = fill_cache_from_prefill(
             self.K_caches, self.V_caches,
             prefill_K_list, prefill_V_list,
             real_len, self.max_s, self.submesh,
         )
+        for cache_tt in old_K_caches + old_V_caches:
+            ttnn.deallocate(cache_tt)
         self.cur_pos = real_len
 
     def decode_step(self, token_id: int) -> torch.Tensor:
