@@ -28,9 +28,9 @@ os.environ.setdefault("TT_VISIBLE_DEVICES", "2,3")
 import torch
 import ttnn
 
-from config import TinyLlamaConfig
+from config import LlamaConfig
 from d5_model import D5PrefillModel, D5DecodeModel
-from weight_loader import load_tinyllama
+from weight_loader import load_llama
 
 
 SOCKET_STORAGE = ttnn.BufferType.L1
@@ -51,7 +51,16 @@ def parse_args():
     return p.parse_args()
 
 
-def format_chat_prompt(prompt: str) -> str:
+def format_chat_prompt(prompt: str, tok) -> str:
+    """Build the chat-formatted prompt using the tokenizer's own template
+    when one is registered (Llama-3.2-Instruct, TinyLlama-Chat, etc.).
+    Falls back to TinyLlama's hardcoded format otherwise."""
+    if getattr(tok, "chat_template", None):
+        return tok.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
     return f"<|user|>\n{prompt}</s>\n<|assistant|>\n"
 
 
@@ -117,14 +126,14 @@ def main():
     print(f"max_new_tokens     = {args.max_new_tokens}")
     print(f"max_total_seq      = {args.max_total_seq}")
 
-    cfg = TinyLlamaConfig()
-    cfg.validate()
+    cfg = LlamaConfig.from_hf_dir(model_dir)
+    print(f"\nmodel: {cfg.summary()}")
 
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(model_dir)
     eos_id = tok.eos_token_id
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else 0
-    prompt_text = format_chat_prompt(args.prompt) if args.chat else args.prompt
+    prompt_text = format_chat_prompt(args.prompt, tok) if args.chat else args.prompt
     prompt_ids = tok(prompt_text, return_tensors="pt").input_ids
     real_len = prompt_ids.shape[-1]
     target = next_tile_len(real_len)
@@ -139,9 +148,9 @@ def main():
               file=sys.stderr)
         return 1
 
-    print("\nLoading TinyLlama weights to host...")
+    print(f"\nLoading {cfg.model_name} weights to host...")
     t0 = time.perf_counter()
-    fmw = load_tinyllama(model_dir, cfg)
+    fmw = load_llama(model_dir, cfg)
     t_load = time.perf_counter() - t0
     print(f"  weight load (host): {t_load:.2f}s")
 

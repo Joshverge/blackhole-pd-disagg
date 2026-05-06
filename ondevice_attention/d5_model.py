@@ -69,8 +69,12 @@ class D5DecodeModel:
             device=submesh,
             mesh_mapper=ttnn.ReplicateTensorToMesh(submesh),
         )
+        # Cap precompute at 8192 positions. Llama-3.2 reports 131072 in its
+        # config which would build a 64MB table on host. Standard RoPE only
+        # (Llama-3.2 long-context frequency scaling not implemented).
+        rope_max = min(cfg.max_position_embeddings, 8192)
         self.cos, self.sin = precompute_rope(
-            max_pos=cfg.max_position_embeddings,
+            max_pos=rope_max,
             head_dim=cfg.head_dim,
             theta=cfg.rope_theta,
         )
